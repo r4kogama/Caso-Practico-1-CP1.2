@@ -1,0 +1,81 @@
+pipeline {
+    agent any
+    //impide la descarga de todo el codigo fuente en cada agente
+    options { skipDefaultCheckout() }
+
+     stages {
+        stage('Get Code') {
+            steps {
+                echo 'Access repo by private key ssh'
+                git branch : 'master',
+                    credentialsId : 'github-ssh',
+                    url: 'git@github.com:r4kogama/Caso-Practico-1-CP1.2.git'
+	            echo WORKSPACE
+                bat 'dir'
+                stash name:'code', includes:'**'
+            }
+        }
+        stage('Tests') {
+            parallel
+            {
+                stage('Unit') {
+                    agent {label 'linux-debian'}
+                    steps {
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                            deleteDir()
+                            unstash name:'code'
+                            sh '''
+                                ls -la
+                                export PYTHONPATH=${WORKSPACE}
+                                /opt/venv/bin/pytest  test/unit  --junitxml=report/unit/result-unit.xml --html-output=report/unit
+                            '''
+                            stash name:'report-unit', includes:'report/unit/**', useDefaultExcludes: false
+                       }
+                    }
+                }   
+                stage('Rest') {
+                    agent {label 'alpine && wiremock && pytest'}
+                    steps {
+                      catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                        deleteDir()
+                        unstash name:'code'
+                        sh '''
+                            export FLASK_APP=app/api.py                          
+                            flask run &
+
+                            sleep 4
+
+                            java -jar /home/jenkins/agent/wiremock/wiremock.jar \
+                                --port 9090 \
+                                --root-dir test/wiremock &
+                            WM_PID=$!
+                            echo Wiremock_initial_with_id: $WM_PID
+                            
+                            export PYTHONPATH=${WORKSPACE}
+
+                            sleep 15
+                            /usr/bin/pytest test/rest --junitxml=report/rest/result-rest.xml --html-output=report/rest
+                            
+                            kill $WM_PID
+                            wait $WM_PID 2>/dev/null || true
+                            echo WireMock_stop
+                        '''
+                      }
+                      stash name:'report-rest', includes:'report/rest/**', useDefaultExcludes: false
+                    }    
+                }                
+                
+            }
+        }
+        stage('Results') {
+            steps {
+                deleteDir()
+                script {
+                    ['report-unit', 'report-rest'].each { unstash it }
+                }
+                junit testResults: 'report/**/result-*.xml', allowEmptyResults: true // graficas
+                archiveArtifacts artifacts: 'report/**/*', allowEmptyArchive: true
+            }
+        }
+    }
+}
