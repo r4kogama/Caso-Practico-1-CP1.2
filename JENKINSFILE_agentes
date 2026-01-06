@@ -73,10 +73,10 @@ pipeline {
                             sh getDataAgent('unix')
                             sh '''
                                 export PYTHONPATH=${WORKSPACE}
-                                /opt/venv/bin/coverage run --source=app --omit=app/__init__.py,app/api.py -m pytest test/unit \
+                                coverage run --source=app --omit=app/__init__.py,app/api.py -m pytest test/unit \
                                 --junitxml=report/unit/result-unit.xml --html-output=report/unit/unit-test
-                                /opt/venv/bin/coverage xml -o report/unit/coverage/coverage.xml
-                                /opt/venv/bin/coverage html -d report/unit/coverage
+                                coverage xml -o report/unit/coverage/coverage.xml
+                                coverage html -d report/unit/coverage
                                 rm report/unit/report.html
                                 ls -la
                             '''
