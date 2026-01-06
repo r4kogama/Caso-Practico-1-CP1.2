@@ -3,7 +3,7 @@ def getDataAgent(typeSystem) {
 } 
 
 pipeline {
-    agent any
+    agent none
     //impide la descarga de todo el codigo fuente en cada agente
     options { skipDefaultCheckout() }
 
