@@ -24,8 +24,8 @@ pipeline {
         }
         stage('Statics') {
             parallel{
-                agent {label 'linux-debian'}
                 stage('Code Analysis') {
+                agent {label 'linux-debian'}
                     steps{
                         catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
                             deleteDir()
@@ -43,6 +43,7 @@ pipeline {
                     }
                 }
                 stage('Security') {
+                    agent {label 'linux-debian'}
                     steps{
                         catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
                             deleteDir()
