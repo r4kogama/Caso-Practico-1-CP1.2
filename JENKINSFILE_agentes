@@ -1,0 +1,157 @@
+def getDataAgent(typeSystem) {
+    return (typeSystem == 'unix') ? 'whoami\nhostname\necho ${WORKSPACE}' : 'whoami\nhostname\necho %WORKSPACE%' 
+} 
+
+pipeline {
+    agent any
+    //impide la descarga de todo el codigo fuente en cada agente
+    options { skipDefaultCheckout() }
+
+    stages {
+        stage('Get Code') {
+            agent {label 'windows'}
+            steps {
+                echo 'Access repo by private key ssh'
+                git branch : 'master',
+                    credentialsId : 'github-ssh',
+                    url: 'git@github.com:r4kogama/Caso-Practico-1-CP1.2.git' 
+                bat getDataAgent('win')              
+                bat """
+                    dir
+                """
+                stash name:'code', includes:'**'
+            }
+        }
+        stage('Statics') {
+            parallel{
+                agent {label 'linux-debian'}
+                stage('Code Analysis') {
+                    steps{
+                        catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                            deleteDir()
+                            unstash name:'code'
+                            sh getDataAgent('unix')              
+                            sh '''
+                                flake8 --format=pylint --exit-zero app >flake8.out
+                            '''
+                            recordIssues qualityGates: [
+                                [criticality: 'NOTE', integerThreshold: 8, threshold: 8.0, type: 'TOTAL'], 
+                                [criticality: 'ERROR', integerThreshold: 10, threshold: 10.0, type: 'TOTAL']],
+                                sourceCodeRetention: 'LAST_BUILD', tools: [flake8(pattern: 'flake8.out')],
+                                unhealthy: 10
+                        }
+                    }
+                }
+                stage('Security') {
+                    steps{
+                        catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                            deleteDir()
+                            unstash name:'code'
+                            sh getDataAgent('unix')
+                            sh '''
+                                bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"
+                            '''
+                            recordIssues qualityGates: [
+                                [integerThreshold: 2, threshold: 2.0, type: 'TOTAL'],
+                                [criticality: 'FAILURE', integerThreshold: 4, threshold: 4.0, type: 'TOTAL']
+                            ], 
+                            sourceCodeRetention: 'LAST_BUILD', tools: [pyLint(name: 'Bandit', pattern: 'bandit.out')], unhealthy: 4
+                        }
+                    }
+                }
+            }
+        }
+        stage('Tests') {
+            parallel{
+                stage('Unit') {
+                    agent {label 'linux-debian'}
+                    steps {
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                            deleteDir()
+                            unstash name:'code'
+                            sh getDataAgent('unix')
+                            sh '''
+                                export PYTHONPATH=${WORKSPACE}
+                                /opt/venv/bin/coverage run --source=app --omit=app/__init__.py,app/api.py -m pytest test/unit \
+                                --junitxml=report/unit/result-unit.xml --html-output=report/unit/unit-test
+                                /opt/venv/bin/coverage xml -o report/unit/coverage/coverage.xml
+                                /opt/venv/bin/coverage html -d report/unit/coverage
+                                rm report/unit/report.html
+                                ls -la
+                            '''
+                            junit testResults: '**/result-*.xml', allowEmptyResults: true
+                       }
+                        stash name:'report-unit', includes:'report/unit/**', useDefaultExcludes: false
+                        stash name:'files-py', includes: 'app/calc.py, app/util.py', useDefaultExcludes: false
+                    }
+                }   
+                stage('Rest') {
+                    agent {label 'alpine && wiremock && pytest'}
+                    steps {
+                      catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                        deleteDir()
+                        unstash name:'code'
+                        sh getDataAgent('unix')
+                        sh '''
+                            export FLASK_APP=app/api.py                          
+                            flask run &
+
+                            sleep 4
+
+                            java -jar /home/jenkins/agent/wiremock/wiremock.jar \
+                                --port 9090 \
+                                --root-dir test/wiremock &
+                            WM_PID=$!
+                            echo Server_Wiremock_initial_with_id: $WM_PID
+                            
+                            export PYTHONPATH=${WORKSPACE}
+
+                            sleep 10
+                            /usr/bin/pytest test/rest --junitxml=report/rest/result-rest.xml --html-output=report/rest/rest-test
+                            rm report/rest/report.html
+                            kill $WM_PID
+                            wait $WM_PID 2>/dev/null || true
+                            echo WireMock_stop
+                        '''
+                      }
+                      stash name:'report-rest', includes:'report/rest/**', useDefaultExcludes: false
+                    }    
+                }                
+            }
+        }
+        stage('Coverage') {
+            agent { label 'linux-debian'}
+            steps{
+                catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                    deleteDir()
+                    unstash name:'report-unit'
+                    unstash name:'files-py'
+                    sh getDataAgent('unix')
+                    recordCoverage qualityGates: [
+                        [criticality: 'ERROR', integerThreshold: 84, metric: 'LINE',   threshold: 84.0],
+                        [criticality: 'NOTE',  integerThreshold: 95, metric: 'LINE',   threshold: 95.0],
+                        [criticality: 'ERROR', integerThreshold: 79, metric: 'BRANCH', threshold: 79.0],
+                        [criticality: 'NOTE',  integerThreshold: 90, metric: 'BRANCH', threshold: 90.0]
+                    ],
+                    tools: [[parser: 'COBERTURA', pattern: '**/coverage.xml']]
+                }
+            }
+        }
+        stage('Perfomance') {
+            agent {label 'windows'}
+            steps{
+                catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                    deleteDir()
+                    bat getDataAgent('win')
+                    bat """
+                        set FLASK_APP=app\\api.py
+                        start /B flask run
+                        ping -n 5 127.0.0.1 > nul
+                        C:\\unir\\tareas\\apache-jmeter-5.6.3\\bin\\jmeter -n -t test\\jmeter\\flask-reto1.jmx -f -l flask.jtl
+                    """
+                    perfReport sourceDataFiles: 'flask.jtl'
+                }
+            }
+        }
+    }
+}
