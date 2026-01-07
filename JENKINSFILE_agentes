@@ -1,15 +1,15 @@
 def getDataAgent(typeSystem) {
     return (typeSystem == 'unix') ? 'whoami\nhostname\necho ${WORKSPACE}' : 'whoami\nhostname\necho %WORKSPACE%' 
 } 
-
 pipeline {
     agent none
+    environment { ENV_PY = "/opt/venv/bin" }
     //impide la descarga de todo el codigo fuente en cada agente
     options { skipDefaultCheckout() }
 
     stages {
         stage('Get Code') {
-            agent {label 'windows'}
+            agent {label 'Master'}
             steps {
                 echo 'Access repo by private key ssh'
                 git branch : 'master',
@@ -19,7 +19,7 @@ pipeline {
                 bat """
                     dir
                 """
-                stash name:'code', includes:'**'
+                stash name:'code', includes:'**/*'
             }
         }
         stage('Statics') {
@@ -32,7 +32,7 @@ pipeline {
                             unstash name:'code'
                             sh getDataAgent('unix')              
                             sh '''
-                                flake8 --format=pylint --exit-zero app >flake8.out
+                                $ENV_PY/flake8 --format=pylint --exit-zero app >flake8.out
                             '''
                             recordIssues qualityGates: [
                                 [criticality: 'NOTE', integerThreshold: 8, threshold: 8.0, type: 'TOTAL'], 
@@ -50,7 +50,7 @@ pipeline {
                             unstash name:'code'
                             sh getDataAgent('unix')
                             sh '''
-                                bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"
+                                $ENV_PY/bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"
                             '''
                             recordIssues qualityGates: [
                                 [integerThreshold: 2, threshold: 2.0, type: 'TOTAL'],
@@ -73,10 +73,10 @@ pipeline {
                             sh getDataAgent('unix')
                             sh '''
                                 export PYTHONPATH=${WORKSPACE}
-                                coverage run --source=app --omit=app/__init__.py,app/api.py -m pytest test/unit \
+                                $ENV_PY/coverage run --branch --source=app --omit=app/__init__.py,app/api.py -m pytest test/unit \
                                 --junitxml=report/unit/result-unit.xml --html-output=report/unit/unit-test
-                                coverage xml -o report/unit/coverage/coverage.xml
-                                coverage html -d report/unit/coverage
+                                $ENV_PY/coverage xml -o report/unit/coverage/coverage.xml
+                                $ENV_PY/coverage html -d report/unit/coverage
                                 rm report/unit/report.html
                                 ls -la
                             '''
@@ -89,33 +89,33 @@ pipeline {
                 stage('Rest') {
                     agent {label 'alpine && wiremock && pytest'}
                     steps {
-                      catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                        deleteDir()
-                        unstash name:'code'
-                        sh getDataAgent('unix')
-                        sh '''
-                            export FLASK_APP=app/api.py                          
-                            flask run &
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                            deleteDir()
+                            unstash name:'code'
+                            sh getDataAgent('unix')
+                            sh '''
+                                export FLASK_APP=app/api.py                          
+                                flask run &
 
-                            sleep 4
+                                sleep 4
 
-                            java -jar /home/jenkins/agent/wiremock/wiremock.jar \
-                                --port 9090 \
-                                --root-dir test/wiremock &
-                            WM_PID=$!
-                            echo Server_Wiremock_initial_with_id: $WM_PID
-                            
-                            export PYTHONPATH=${WORKSPACE}
+                                java -jar /home/jenkins/agent/wiremock/wiremock.jar \
+                                    --port 9090 \
+                                    --root-dir test/wiremock &
+                                WM_PID=$!
+                                echo Server_Wiremock_initial_with_id: $WM_PID
+                                
+                                export PYTHONPATH=${WORKSPACE}
 
-                            sleep 10
-                            /usr/bin/pytest test/rest --junitxml=report/rest/result-rest.xml --html-output=report/rest/rest-test
-                            rm report/rest/report.html
-                            kill $WM_PID
-                            wait $WM_PID 2>/dev/null || true
-                            echo WireMock_stop
-                        '''
-                      }
-                      stash name:'report-rest', includes:'report/rest/**', useDefaultExcludes: false
+                                sleep 10
+                                /usr/bin/pytest test/rest --junitxml=report/rest/result-rest.xml --html-output=report/rest/rest-test
+                                rm report/rest/report.html
+                                kill $WM_PID
+                                wait $WM_PID 2>/dev/null || true
+                                echo WireMock_stop
+                            '''
+                        }
+                        stash name:'report-rest', includes:'report/rest/**', useDefaultExcludes: false
                     }    
                 }                
             }
@@ -139,10 +139,11 @@ pipeline {
             }
         }
         stage('Perfomance') {
-            agent {label 'windows'}
+            agent {label 'Master'}
             steps{
                 catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
                     deleteDir()
+                    unstash name:'code'
                     bat getDataAgent('win')
                     bat """
                         set FLASK_APP=app\\api.py
@@ -153,6 +154,15 @@ pipeline {
                     perfReport sourceDataFiles: 'flask.jtl'
                 }
             }
+        }
+        stage('Cleanup workspace') { 
+            agent { label 'Master' } 
+            steps { 
+                bat """
+                    del /f /q *.*
+                    for /d %%i in (*) do rmdir /s /q "%%i"
+                """
+            } 
         }
     }
 }
