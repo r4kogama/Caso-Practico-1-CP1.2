@@ -9,10 +9,10 @@ pipeline {
 
     stages {
         stage('Get Code') {
-            agent {label 'Master'}
+            agent {label 'windows'}
             steps {
                 echo 'Access repo by private key ssh'
-                git branch : 'master',
+                git branch : 'feature_fix_coverage',
                     credentialsId : 'github-ssh',
                     url: 'git@github.com:r4kogama/Caso-Practico-1-CP1.2.git' 
                 bat getDataAgent('win')              
@@ -139,7 +139,7 @@ pipeline {
             }
         }
         stage('Perfomance') {
-            agent {label 'Master'}
+            agent {label 'windows'}
             steps{
                 catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
                     deleteDir()
@@ -156,7 +156,7 @@ pipeline {
             }
         }
         stage('Cleanup workspace') { 
-            agent { label 'Master' } 
+            agent { label 'windows' } 
             steps { 
                 bat """
                     del /f /q *.*
