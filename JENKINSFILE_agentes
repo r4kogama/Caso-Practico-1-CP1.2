@@ -27,7 +27,7 @@ pipeline {
                 stage('Code Analysis') {
                 agent {label 'linux-debian'}
                     steps{
-                        catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                             deleteDir()
                             unstash name:'code'
                             sh getDataAgent('unix')              
@@ -45,7 +45,7 @@ pipeline {
                 stage('Security') {
                     agent {label 'linux-debian'}
                     steps{
-                        catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                             deleteDir()
                             unstash name:'code'
                             sh getDataAgent('unix')
@@ -123,7 +123,7 @@ pipeline {
         stage('Coverage') {
             agent { label 'linux-debian'}
             steps{
-                catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                     deleteDir()
                     unstash name:'report-unit'
                     unstash name:'files-py'
@@ -141,7 +141,7 @@ pipeline {
         stage('Perfomance') {
             agent {label 'windows'}
             steps{
-                catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                     deleteDir()
                     unstash name:'code'
                     bat getDataAgent('win')
