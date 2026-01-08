@@ -9,7 +9,7 @@ pipeline {
 
     stages {
         stage('Get Code') {
-            agent {label 'Master'}
+            agent {label 'windows'}
             steps {
                 echo 'Access repo by private key ssh'
                 git branch : 'master',
@@ -139,7 +139,7 @@ pipeline {
             }
         }
         stage('Perfomance') {
-            agent {label 'Master'}
+            agent {label 'windows'}
             steps{
                 catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
                     deleteDir()
@@ -156,12 +156,14 @@ pipeline {
             }
         }
         stage('Cleanup workspace') { 
-            agent { label 'Master' } 
+            agent { label 'windows' } 
             steps { 
-                bat """
-                    del /f /q *.*
-                    for /d %%i in (*) do rmdir /s /q "%%i"
-                """
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                    bat """
+                        del /f /q *.*
+                        for /d %%i in (*) do rmdir /s /q "%%i"
+                    """
+                }
             } 
         }
     }
