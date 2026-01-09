@@ -18,7 +18,7 @@ pipeline{
         }
         stage('Static') {
             steps{
-                catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                     bat """
                         flake8 --format=pylint --exit-zero app >flake8.out
                     """
@@ -75,7 +75,7 @@ pipeline{
         }
         stage('Cobertura') {
             steps{
-                catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                     unstash name:'report-unit'
                     unstash name:'files-py'
                     recordCoverage qualityGates: [
@@ -90,7 +90,7 @@ pipeline{
         }
         stage('Security') {
             steps{
-                catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                     bat """
                         bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"
                         """
@@ -104,11 +104,12 @@ pipeline{
         }
         stage('Perfomance') {
             steps{
-                catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                     bat """
                         C:\\unir\\tareas\\apache-jmeter-5.6.3\\bin\\jmeter -n -t test\\jmeter\\flask-reto1.jmx -f -l flask.jtl
                         """
                     perfReport sourceDataFiles: 'flask.jtl'
+                    cleanWs(notFailBuild: true)
                 }
             }
         }
