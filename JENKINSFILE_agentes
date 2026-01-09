@@ -116,6 +116,7 @@ pipeline {
                             '''
                         }
                         stash name:'report-rest', includes:'report/rest/**', useDefaultExcludes: false
+                        deleteDir()
                     }    
                 }                
             }
@@ -135,6 +136,7 @@ pipeline {
                         [criticality: 'NOTE',  integerThreshold: 90, metric: 'BRANCH', threshold: 90.0]
                     ],
                     tools: [[parser: 'COBERTURA', pattern: '**/coverage.xml']]
+                    deleteDir()
                 }
             }
         }
@@ -142,7 +144,6 @@ pipeline {
             agent {label 'windows'}
             steps{
                 catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                    deleteDir()
                     unstash name:'code'
                     bat getDataAgent('win')
                     bat """
@@ -152,19 +153,9 @@ pipeline {
                         C:\\unir\\tareas\\apache-jmeter-5.6.3\\bin\\jmeter -n -t test\\jmeter\\flask-reto1.jmx -f -l flask.jtl
                     """
                     perfReport sourceDataFiles: 'flask.jtl'
+                    cleanWs(notFailBuild: true)
                 }
             }
-        }
-        stage('Cleanup workspace') { 
-            agent { label 'windows' } 
-            steps { 
-                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                    bat """
-                        del /f /q *.*
-                        for /d %%i in (*) do rmdir /s /q "%%i"
-                    """
-                }
-            } 
         }
     }
 }
