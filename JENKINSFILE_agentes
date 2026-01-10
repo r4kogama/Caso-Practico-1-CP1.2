@@ -3,7 +3,10 @@ def getDataAgent(typeSystem) {
 } 
 pipeline {
     agent none
-    environment { ENV_PY = "/opt/venv/bin" }
+    environment { 
+        ENV_DB = "/opt/venv/bin"
+        ENV_AP = "/usr/bin"
+    }
     //impide la descarga de todo el codigo fuente en cada agente
     options { skipDefaultCheckout() }
 
@@ -22,7 +25,7 @@ pipeline {
                 stash name:'code', includes:'**/*'
             }
         }
-        stage('Statics') {
+        stage('Statics & testing & performance') {
             parallel{
                 stage('Code Analysis') {
                 agent {label 'linux-debian'}
@@ -32,13 +35,14 @@ pipeline {
                             unstash name:'code'
                             sh getDataAgent('unix')              
                             sh '''
-                                $ENV_PY/flake8 --format=pylint --exit-zero app >flake8.out
+                                $ENV_DB/flake8 --format=pylint --exit-zero app >flake8.out
                             '''
                             recordIssues qualityGates: [
                                 [criticality: 'NOTE', integerThreshold: 8, threshold: 8.0, type: 'TOTAL'], 
                                 [criticality: 'ERROR', integerThreshold: 10, threshold: 10.0, type: 'TOTAL']],
                                 sourceCodeRetention: 'LAST_BUILD', tools: [flake8(pattern: 'flake8.out')],
                                 unhealthy: 10
+                            deleteDir()
                         }
                     }
                 }
@@ -50,22 +54,19 @@ pipeline {
                             unstash name:'code'
                             sh getDataAgent('unix')
                             sh '''
-                                $ENV_PY/bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"
+                                $ENV_DB/bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"
                             '''
                             recordIssues qualityGates: [
                                 [integerThreshold: 2, threshold: 2.0, type: 'TOTAL'],
                                 [criticality: 'FAILURE', integerThreshold: 4, threshold: 4.0, type: 'TOTAL']
                             ], 
                             sourceCodeRetention: 'LAST_BUILD', tools: [pyLint(name: 'Bandit', pattern: 'bandit.out')], unhealthy: 4
+                            deleteDir()
                         }
                     }
                 }
-            }
-        }
-        stage('Tests') {
-            parallel{
                 stage('Unit') {
-                    agent {label 'linux-debian'}
+                    agent {label 'pytest'}
                     steps {
                         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                             deleteDir()
@@ -73,21 +74,22 @@ pipeline {
                             sh getDataAgent('unix')
                             sh '''
                                 export PYTHONPATH=${WORKSPACE}
-                                $ENV_PY/coverage run --branch --source=app --omit=app/__init__.py,app/api.py -m pytest test/unit \
+                                $ENV_AP/coverage run --branch --source=app --omit=app/__init__.py,app/api.py -m pytest test/unit \
                                 --junitxml=report/unit/result-unit.xml --html-output=report/unit/unit-test
-                                $ENV_PY/coverage xml -o report/unit/coverage/coverage.xml
-                                $ENV_PY/coverage html -d report/unit/coverage
+                                $ENV_AP/coverage xml -o report/unit/coverage/coverage.xml
+                                $ENV_AP/coverage html -d report/unit/coverage
                                 rm report/unit/report.html
                                 ls -la
                             '''
                             junit testResults: '**/result-*.xml', allowEmptyResults: true
+                            stash name:'report-unit', includes:'report/unit/**', useDefaultExcludes: false
+                            stash name:'files-py', includes: 'app/calc.py, app/util.py', useDefaultExcludes: false
+                            deleteDir()
                        }
-                        stash name:'report-unit', includes:'report/unit/**', useDefaultExcludes: false
-                        stash name:'files-py', includes: 'app/calc.py, app/util.py', useDefaultExcludes: false
                     }
                 }   
-                stage('Rest') {
-                    agent {label 'alpine && wiremock && pytest'}
+                stage('Services') {
+                    agent {label 'wiremock'}
                     steps {
                         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                             deleteDir()
@@ -108,17 +110,35 @@ pipeline {
                                 export PYTHONPATH=${WORKSPACE}
 
                                 sleep 10
-                                /usr/bin/pytest test/rest --junitxml=report/rest/result-rest.xml --html-output=report/rest/rest-test
+                                $ENV_AP/pytest test/rest --junitxml=report/rest/result-rest.xml --html-output=report/rest/rest-test
                                 rm report/rest/report.html
                                 kill $WM_PID
                                 wait $WM_PID 2>/dev/null || true
                                 echo WireMock_stop
                             '''
+                            stash name:'report-rest', includes:'report/rest/**', useDefaultExcludes: false
+                            deleteDir()
                         }
-                        stash name:'report-rest', includes:'report/rest/**', useDefaultExcludes: false
-                        deleteDir()
                     }    
-                }                
+                }
+                stage('Perfomance') {
+                    agent {label 'windows'}
+                    steps{
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                            deleteDir()
+                            unstash name:'code'
+                            bat getDataAgent('win')
+                            bat """
+                                set FLASK_APP=app\\api.py
+                                start /B flask run
+                                ping -n 5 127.0.0.1 > nul
+                                C:\\unir\\tareas\\apache-jmeter-5.6.3\\bin\\jmeter -n -t test\\jmeter\\flask-reto1.jmx -f -l flask.jtl
+                            """
+                            perfReport sourceDataFiles: 'flask.jtl'
+                            cleanWs(notFailBuild: true)
+                        }
+                    }
+                }
             }
         }
         stage('Coverage') {
@@ -137,23 +157,6 @@ pipeline {
                     ],
                     tools: [[parser: 'COBERTURA', pattern: '**/coverage.xml']]
                     deleteDir()
-                }
-            }
-        }
-        stage('Perfomance') {
-            agent {label 'windows'}
-            steps{
-                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                    unstash name:'code'
-                    bat getDataAgent('win')
-                    bat """
-                        set FLASK_APP=app\\api.py
-                        start /B flask run
-                        ping -n 5 127.0.0.1 > nul
-                        C:\\unir\\tareas\\apache-jmeter-5.6.3\\bin\\jmeter -n -t test\\jmeter\\flask-reto1.jmx -f -l flask.jtl
-                    """
-                    perfReport sourceDataFiles: 'flask.jtl'
-                    cleanWs(notFailBuild: true)
                 }
             }
         }
