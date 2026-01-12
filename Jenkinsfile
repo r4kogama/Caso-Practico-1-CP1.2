@@ -8,7 +8,7 @@ pipeline{
         stage('Get Code') {
             steps {
                 echo 'Access repo by private key ssh'
-                git branch : 'master',
+                git branch : 'feature_fix_coverage',
                     credentialsId : 'github-ssh',
                     url: 'git@github.com:r4kogama/Caso-Practico-1-CP1.2.git'
                 echo WORKSPACE
