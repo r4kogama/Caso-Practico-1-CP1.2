@@ -35,7 +35,7 @@ pipeline {
                             unstash name:'code'
                             sh getDataAgent('unix')              
                             sh '''
-                                python3 -m flake8 --format=pylint --exit-zero app >flake8.out
+                                $ENV_DB/flake8 --format=pylint --exit-zero app >flake8.out
                             '''
                             recordIssues qualityGates: [
                                 [criticality: 'NOTE', integerThreshold: 8, threshold: 8.0, type: 'TOTAL'], 
@@ -54,7 +54,7 @@ pipeline {
                             unstash name:'code'
                             sh getDataAgent('unix')
                             sh '''
-                                python3 -m bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"
+                                $ENV_DB/bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"
                             '''
                             recordIssues qualityGates: [
                                 [integerThreshold: 2, threshold: 2.0, type: 'TOTAL'],
@@ -74,10 +74,10 @@ pipeline {
                             sh getDataAgent('unix')
                             sh '''
                                 export PYTHONPATH=${WORKSPACE}
-                                python3 -m coverage run --branch --source=app --omit=app/__init__.py,app/api.py -m pytest test/unit \
+                                $ENV_AP/coverage run --branch --source=app --omit=app/__init__.py,app/api.py -m pytest test/unit \
                                 --junitxml=report/unit/result-unit.xml --html-output=report/unit/unit-test
-                                python3 -m coverage xml -o report/unit/coverage/coverage.xml
-                                python3 -m coverage html -d report/unit/coverage
+                                $ENV_AP/coverage xml -o report/unit/coverage/coverage.xml
+                                $ENV_AP/coverage html -d report/unit/coverage
                                 rm report/unit/report.html
                                 ls -la
                             '''
@@ -110,7 +110,7 @@ pipeline {
                                 export PYTHONPATH=${WORKSPACE}
 
                                 sleep 10
-                                python3 -m pytest test/rest --junitxml=report/rest/result-rest.xml --html-output=report/rest/rest-test
+                                $ENV_AP/pytest test/rest --junitxml=report/rest/result-rest.xml --html-output=report/rest/rest-test
                                 rm report/rest/report.html
                                 kill $WM_PID
                                 wait $WM_PID 2>/dev/null || true
