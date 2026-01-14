@@ -4,6 +4,7 @@ pipeline{
             label "windows"
         }
     }
+    options { skipDefaultCheckout() }
     stages{
         stage('Get Code') {
             steps {
